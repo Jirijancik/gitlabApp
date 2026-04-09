@@ -58,8 +58,5 @@ Thumbs.db
 # TypeScript
 *.tsbuildinfo
 
-# Architecture docs (not shipped)
-ARCHITECTURE.md
-IMPLEMENTATION_PLAN.md
 
 .claude
