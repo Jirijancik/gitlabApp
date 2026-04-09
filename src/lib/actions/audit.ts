@@ -42,10 +42,17 @@ export async function auditGroup(groupId: string): Promise<AuditResult> {
     return emptyResult([`Group ${id} not found or access denied`]);
   }
 
-  const [descendantGroups, projects] = await Promise.all([
-    getDescendantGroups(id),
-    getGroupProjects(id),
-  ]);
+  let descendantGroups, projects;
+  try {
+    [descendantGroups, projects] = await Promise.all([
+      getDescendantGroups(id),
+      getGroupProjects(id),
+    ]);
+  } catch {
+    return emptyResult([
+      `Failed to fetch subgroups or projects for group ${id}`,
+    ]);
+  }
   const allGroups = [rootGroup, ...descendantGroups];
 
   const groupMemberTasks = allGroups.map(

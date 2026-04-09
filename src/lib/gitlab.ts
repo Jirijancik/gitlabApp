@@ -63,24 +63,26 @@ async function gitlabFetch(path: string): Promise<Response> {
   throw new Error(`Unreachable: exhausted retries for ${path}`);
 }
 
-function buildPaginatedPath(path: string, page?: string): string {
-  const url = new URL(`${getBaseUrl()}/api/v4${path}`);
-  url.searchParams.set("per_page", String(PER_PAGE));
-  if (page) url.searchParams.set("page", page);
-  return url.pathname + url.search;
-}
-
-async function fetchAllPages<T>(path: string): Promise<T[]> {
+async function fetchAllPages<T>(
+  path: string,
+  params?: Record<string, string>,
+): Promise<T[]> {
   const items: T[] = [];
-  let currentPath: string | null = buildPaginatedPath(path);
+  let page = 1;
 
-  while (currentPath) {
-    const response = await gitlabFetch(currentPath);
+  while (true) {
+    const query = new URLSearchParams({
+      per_page: String(PER_PAGE),
+      page: String(page),
+      ...params,
+    });
+    const response = await gitlabFetch(`${path}?${query}`);
     const data: T[] = await response.json();
     items.push(...data);
 
     const nextPage = response.headers.get("x-next-page");
-    currentPath = nextPage ? buildPaginatedPath(path, nextPage) : null;
+    if (!nextPage) break;
+    page = Number(nextPage);
   }
 
   return items;
@@ -102,9 +104,9 @@ export async function getDescendantGroups(
 export async function getGroupProjects(
   id: number,
 ): Promise<GitLabProject[]> {
-  return fetchAllPages<GitLabProject>(
-    `/groups/${id}/projects?include_subgroups=true`,
-  );
+  return fetchAllPages<GitLabProject>(`/groups/${id}/projects`, {
+    include_subgroups: "true",
+  });
 }
 
 export async function getGroupMembers(
