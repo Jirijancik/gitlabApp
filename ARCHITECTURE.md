@@ -9,9 +9,11 @@ The primary use case is security/compliance: ensuring no unauthorized users have
 ## 2. Business Requirements
 
 ### Input
+
 - A top-level GitLab group ID, entered via a web form in the browser
 
 ### Output
+
 - A list of all users who are **direct members** of any group or project within the hierarchy
 - For each user:
   - Display name (civil name)
@@ -35,11 +37,13 @@ Total Users: 5
 ```
 
 ### Token Management
+
 - The GitLab access token is **not** passed as a CLI/URL argument
 - It is stored in `.env.local` and read server-side only — never exposed to the browser
 - Easy to swap: edit the file and restart the dev server
 
 ### Scale
+
 - Must handle production environments: ~500 projects, ~30 groups, ~50 users
 - Test environment: 5 users, 5 groups, 4 projects (group ID `10975505`)
 
@@ -53,17 +57,18 @@ Total Users: 5
 
 ## 4. Tech Stack
 
-| Layer | Technology | Notes |
-|-------|-----------|-------|
-| Framework | **Next.js 15** (App Router) | Routing only; business logic lives in `lib/` |
-| Language | **TypeScript** | |
-| Runtime | **Node.js 22+** | Native `fetch` — no axios needed |
-| Styling | **Tailwind CSS** | Bundled with create-next-app |
-| UI Components | **shadcn/ui** | Primitives installed into `src/components/ui/` |
-| HTTP Client | Native `fetch` | Zero additional runtime dependencies |
-| Token Storage | `.env.local` | Server-side only |
+| Layer         | Technology                        | Notes                                            |
+| ------------- | --------------------------------- | ------------------------------------------------ |
+| Framework     | **Next.js 15** (App Router) | Routing only; business logic lives in `lib/`   |
+| Language      | **TypeScript**              |                                                  |
+| Runtime       | **Node.js 22+**             | Native `fetch` — no axios needed              |
+| Styling       | **Tailwind CSS**            | Bundled with create-next-app                     |
+| UI Components | **shadcn/ui**               | Primitives installed into `src/components/ui/` |
+| HTTP Client   | Native `fetch`                  | Zero additional runtime dependencies             |
+| Token Storage | `.env.local`                    | Server-side only                                 |
 
 ### Dependency Philosophy
+
 No additional npm packages beyond what `create-next-app` and `shadcn` provide. Pagination, retry logic, and concurrency control are implemented manually (~10–20 lines each).
 
 ## 5. Architecture
@@ -123,13 +128,13 @@ User enters group ID in form
 
 ### Endpoints Used
 
-| Purpose | Endpoint | Key Params |
-|---------|----------|------------|
-| Get group info | `GET /api/v4/groups/:id` | — |
-| All descendant subgroups | `GET /api/v4/groups/:id/descendant_groups` | `per_page=100` |
-| All projects in hierarchy | `GET /api/v4/groups/:id/projects` | `include_subgroups=true`, `per_page=100` |
-| Direct group members | `GET /api/v4/groups/:id/members` | `per_page=100` |
-| Direct project members | `GET /api/v4/projects/:id/members` | `per_page=100` |
+| Purpose                   | Endpoint                                     | Key Params                                   |
+| ------------------------- | -------------------------------------------- | -------------------------------------------- |
+| Get group info            | `GET /api/v4/groups/:id`                   | —                                           |
+| All descendant subgroups  | `GET /api/v4/groups/:id/descendant_groups` | `per_page=100`                             |
+| All projects in hierarchy | `GET /api/v4/groups/:id/projects`          | `include_subgroups=true`, `per_page=100` |
+| Direct group members      | `GET /api/v4/groups/:id/members`           | `per_page=100`                             |
+| Direct project members    | `GET /api/v4/projects/:id/members`         | `per_page=100`                             |
 
 ### Important: `/members` vs `/members/all`
 
@@ -138,6 +143,7 @@ We use `/members` (direct only), **not** `/members/all` (which includes inherite
 ### Pagination Strategy
 
 GitLab uses offset-based pagination. The client:
+
 1. Sets `per_page=100` (maximum)
 2. Reads the `x-next-page` response header
 3. Continues fetching until `x-next-page` is empty
@@ -174,12 +180,12 @@ src/components/
 
 ### shadcn Components Used
 
-| Component | Purpose |
-|-----------|---------|
-| `button` | Form submit |
-| `input` | Group ID text input |
-| `card` | User result cards |
-| `badge` | Access level labels (Owner, Developer, Guest…) |
+| Component  | Purpose                                         |
+| ---------- | ----------------------------------------------- |
+| `button` | Form submit                                     |
+| `input`  | Group ID text input                             |
+| `card`   | User result cards                               |
+| `badge`  | Access level labels (Owner, Developer, Guest…) |
 
 ## 8. File Structure
 
@@ -233,15 +239,15 @@ const ACCESS_LEVELS: Record<number, string> = {
 
 ## 10. Edge Cases
 
-| Case | Handling |
-|------|----------|
-| Blocked users (`state !== "active"`) | Include in output with "(blocked)" indicator |
-| Archived projects | Include with "(archived)" label |
-| 403 on specific group/project | Skip and collect in `errors` array — don't abort |
-| Rate limiting (HTTP 429) | Retry with `Retry-After` header, up to 3 attempts |
-| Pagination beyond defaults | Follow `x-next-page` header until empty |
-| Invalid group ID | Return validation error before any member fetching |
-| Empty group (no members) | Show "No members found" |
+| Case                                   | Handling                                            |
+| -------------------------------------- | --------------------------------------------------- |
+| Blocked users (`state !== "active"`) | Include in output with "(blocked)" indicator        |
+| Archived projects                      | Include with "(archived)" label                     |
+| 403 on specific group/project          | Skip and collect in `errors` array — don't abort |
+| Rate limiting (HTTP 429)               | Retry with `Retry-After` header, up to 3 attempts |
+| Pagination beyond defaults             | Follow `x-next-page` header until empty           |
+| Invalid group ID                       | Return validation error before any member fetching  |
+| Empty group (no members)               | Show "No members found"                             |
 
 ## 11. Environment Configuration
 
@@ -251,10 +257,10 @@ GITLAB_TOKEN=YOUR_TOKEN
 GITLAB_URL=https://gitlab.com
 ```
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `GITLAB_TOKEN` | Yes | — | GitLab personal access token (read-only) |
-| `GITLAB_URL` | No | `https://gitlab.com` | GitLab instance base URL |
+| Variable         | Required | Default                | Description                              |
+| ---------------- | -------- | ---------------------- | ---------------------------------------- |
+| `GITLAB_TOKEN` | Yes      | —                     | GitLab personal access token (read-only) |
+| `GITLAB_URL`   | No       | `https://gitlab.com` | GitLab instance base URL                 |
 
 ## 12. Test Data
 
