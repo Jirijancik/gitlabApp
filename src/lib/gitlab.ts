@@ -2,27 +2,47 @@ import type { GitLabGroup, GitLabProject, GitLabMember } from "./types";
 
 const MAX_RETRIES = 3;
 const PER_PAGE = 100;
-const CONCURRENCY_LIMIT = 5;
+
+let cachedBaseUrl: string | undefined;
+let cachedToken: string | undefined;
 
 function getBaseUrl(): string {
-  return process.env.GITLAB_URL || "https://gitlab.com";
+  if (!cachedBaseUrl) {
+    cachedBaseUrl = process.env.GITLAB_URL || "https://gitlab.com";
+  }
+  return cachedBaseUrl;
 }
 
 function getToken(): string {
-  const token = process.env.GITLAB_TOKEN;
-  if (!token) {
-    throw new Error("GITLAB_TOKEN environment variable is not set");
+  if (!cachedToken) {
+    const token = process.env.GITLAB_TOKEN;
+    if (!token) {
+      throw new Error("GITLAB_TOKEN environment variable is not set");
+    }
+    cachedToken = token;
   }
-  return token;
+  return cachedToken;
 }
 
 async function gitlabFetch(path: string): Promise<Response> {
   const url = `${getBaseUrl()}/api/v4${path}`;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    const response = await fetch(url, {
-      headers: { "PRIVATE-TOKEN": getToken() },
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: { "PRIVATE-TOKEN": getToken() },
+        cache: "no-store",
+      });
+    } catch (error) {
+      if (attempt === MAX_RETRIES) {
+        throw new Error(
+          `Network error after ${MAX_RETRIES} retries: ${path} — ${error instanceof Error ? error.message : error}`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+      continue;
+    }
 
     if (response.status === 429) {
       if (attempt === MAX_RETRIES) {
@@ -34,9 +54,7 @@ async function gitlabFetch(path: string): Promise<Response> {
     }
 
     if (!response.ok) {
-      throw new Error(
-        `GitLab API error ${response.status}: ${path}`
-      );
+      throw new Error(`GitLab API error ${response.status}: ${path}`);
     }
 
     return response;
@@ -45,10 +63,16 @@ async function gitlabFetch(path: string): Promise<Response> {
   throw new Error(`Unreachable: exhausted retries for ${path}`);
 }
 
+function buildPaginatedPath(path: string, page?: string): string {
+  const url = new URL(`${getBaseUrl()}/api/v4${path}`);
+  url.searchParams.set("per_page", String(PER_PAGE));
+  if (page) url.searchParams.set("page", page);
+  return url.pathname + url.search;
+}
+
 async function fetchAllPages<T>(path: string): Promise<T[]> {
-  const separator = path.includes("?") ? "&" : "?";
-  let currentPath = `${path}${separator}per_page=${PER_PAGE}`;
   const items: T[] = [];
+  let currentPath: string | null = buildPaginatedPath(path);
 
   while (currentPath) {
     const response = await gitlabFetch(currentPath);
@@ -56,39 +80,10 @@ async function fetchAllPages<T>(path: string): Promise<T[]> {
     items.push(...data);
 
     const nextPage = response.headers.get("x-next-page");
-    if (nextPage) {
-      const pageParam = currentPath.includes("page=")
-        ? currentPath.replace(/\bpage=\d+/, `page=${nextPage}`)
-        : `${currentPath}&page=${nextPage}`;
-      currentPath = pageParam;
-    } else {
-      currentPath = "";
-    }
+    currentPath = nextPage ? buildPaginatedPath(path, nextPage) : null;
   }
 
   return items;
-}
-
-export async function withConcurrency<T>(
-  tasks: (() => Promise<T>)[],
-  limit: number = CONCURRENCY_LIMIT
-): Promise<T[]> {
-  const results: T[] = new Array(tasks.length);
-  let nextIndex = 0;
-
-  async function worker() {
-    while (nextIndex < tasks.length) {
-      const index = nextIndex++;
-      results[index] = await tasks[index]();
-    }
-  }
-
-  const workers = Array.from(
-    { length: Math.min(limit, tasks.length) },
-    () => worker()
-  );
-  await Promise.all(workers);
-  return results;
 }
 
 // --- Exported API functions ---
@@ -99,27 +94,27 @@ export async function getGroup(id: number): Promise<GitLabGroup> {
 }
 
 export async function getDescendantGroups(
-  id: number
+  id: number,
 ): Promise<GitLabGroup[]> {
   return fetchAllPages<GitLabGroup>(`/groups/${id}/descendant_groups`);
 }
 
 export async function getGroupProjects(
-  id: number
+  id: number,
 ): Promise<GitLabProject[]> {
   return fetchAllPages<GitLabProject>(
-    `/groups/${id}/projects?include_subgroups=true`
+    `/groups/${id}/projects?include_subgroups=true`,
   );
 }
 
 export async function getGroupMembers(
-  id: number
+  id: number,
 ): Promise<GitLabMember[]> {
   return fetchAllPages<GitLabMember>(`/groups/${id}/members`);
 }
 
 export async function getProjectMembers(
-  id: number
+  id: number,
 ): Promise<GitLabMember[]> {
   return fetchAllPages<GitLabMember>(`/projects/${id}/members`);
 }

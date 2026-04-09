@@ -1,5 +1,6 @@
 "use server";
 
+import { z } from "zod";
 import type { AuditResult, GitLabMember } from "../types";
 import {
   getGroup,
@@ -7,75 +8,103 @@ import {
   getGroupProjects,
   getGroupMembers,
   getProjectMembers,
-  withConcurrency,
 } from "../gitlab";
+import { withConcurrency } from "../utils";
 import { aggregateByUser } from "../aggregate";
 
+const groupIdSchema = z
+  .string()
+  .trim()
+  .regex(/^\d+$/, "Group ID must be a numeric value")
+  .transform(Number);
+
 function emptyResult(errors: string[]): AuditResult {
-  return { users: [], totalCount: 0, errors };
+  return { users: [], errors };
 }
 
-export async function auditGroup(groupId: string): Promise<AuditResult> {
-  // 1. Input validation
-  const trimmed = groupId.trim();
-  if (!trimmed || !/^\d+$/.test(trimmed)) {
-    return emptyResult(["Invalid group ID: must be a numeric value"]);
-  }
-  const id = Number(trimmed);
+type MemberResult = {
+  id: number;
+  members: GitLabMember[];
+  error?: string;
+};
 
-  // 2. Verify group exists
+export async function auditGroup(groupId: string): Promise<AuditResult> {
+  const parsed = groupIdSchema.safeParse(groupId);
+  if (!parsed.success) {
+    return emptyResult([parsed.error.issues[0].message]);
+  }
+  const id = parsed.data;
+
   let rootGroup;
   try {
     rootGroup = await getGroup(id);
   } catch {
-    return emptyResult([
-      `Group ${id} not found or access denied`,
-    ]);
+    return emptyResult([`Group ${id} not found or access denied`]);
   }
 
-  // 3. Fetch descendants + projects in parallel
   const [descendantGroups, projects] = await Promise.all([
     getDescendantGroups(id),
     getGroupProjects(id),
   ]);
   const allGroups = [rootGroup, ...descendantGroups];
 
-  // 4. Fetch all members with concurrency pool
-  const errors: string[] = [];
+  const groupMemberTasks = allGroups.map(
+    (group) => async (): Promise<MemberResult> => {
+      try {
+        const members = await getGroupMembers(group.id);
+        return { id: group.id, members };
+      } catch {
+        return {
+          id: group.id,
+          members: [],
+          error: `Failed to fetch members for group "${group.full_path}"`,
+        };
+      }
+    },
+  );
 
-  const groupMemberTasks = allGroups.map((group) => async () => {
-    try {
-      const members = await getGroupMembers(group.id);
-      return [group.id, members] as [number, GitLabMember[]];
-    } catch {
-      errors.push(`Failed to fetch members for group "${group.full_path}"`);
-      return [group.id, []] as [number, GitLabMember[]];
-    }
-  });
-
-  const projectMemberTasks = projects.map((project) => async () => {
-    try {
-      const members = await getProjectMembers(project.id);
-      return [project.id, members] as [number, GitLabMember[]];
-    } catch {
-      errors.push(`Failed to fetch members for project "${project.full_path}"`);
-      return [project.id, []] as [number, GitLabMember[]];
-    }
-  });
+  const projectMemberTasks = projects.map(
+    (project) => async (): Promise<MemberResult> => {
+      try {
+        const members = await getProjectMembers(project.id);
+        return { id: project.id, members };
+      } catch {
+        return {
+          id: project.id,
+          members: [],
+          error: `Failed to fetch members for project "${project.full_path}"`,
+        };
+      }
+    },
+  );
 
   const [groupMemberResults, projectMemberResults] = await Promise.all([
     withConcurrency(groupMemberTasks),
     withConcurrency(projectMemberTasks),
   ]);
 
-  const groupMembers = new Map<number, GitLabMember[]>(groupMemberResults);
-  const projectMembers = new Map<number, GitLabMember[]>(projectMemberResults);
+  const errors: string[] = [];
+  const groupMembers = new Map<number, GitLabMember[]>();
+  for (const result of groupMemberResults) {
+    groupMembers.set(result.id, result.members);
+    if (result.error) errors.push(result.error);
+  }
 
-  // 5. Aggregate
-  const result = aggregateByUser(allGroups, projects, groupMembers, projectMembers);
+  const projectMembers = new Map<number, GitLabMember[]>();
+  for (const result of projectMemberResults) {
+    projectMembers.set(result.id, result.members);
+    if (result.error) errors.push(result.error);
+  }
 
-  // Merge collected errors
-  result.errors.push(...errors);
+  const aggregated = aggregateByUser({
+    groups: allGroups,
+    projects,
+    groupMembers,
+    projectMembers,
+  });
 
-  return result;
+  return {
+    users: aggregated.users,
+    errors: [...aggregated.errors, ...errors],
+  };
 }

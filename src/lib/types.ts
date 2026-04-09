@@ -13,11 +13,13 @@ export interface GitLabProject {
   archived: boolean;
 }
 
+export type GitLabMemberState = "active" | "blocked" | "deactivated";
+
 export interface GitLabMember {
   id: number;
   name: string;
   username: string;
-  state: string;
+  state: GitLabMemberState;
   access_level: number;
 }
 
@@ -26,18 +28,19 @@ export interface GitLabMember {
 export interface MembershipEntry {
   fullPath: string;
   accessLevel: string;
+  archived: boolean;
 }
 
 export interface UserAuditEntry {
   name: string;
   username: string;
+  state: GitLabMemberState;
   groups: MembershipEntry[];
   projects: MembershipEntry[];
 }
 
 export interface AuditResult {
   users: UserAuditEntry[];
-  totalCount: number;
   errors: string[];
 }
 
@@ -50,3 +53,7 @@ export const ACCESS_LEVELS: Record<number, string> = {
   40: "Maintainer",
   50: "Owner",
 };
+
+export function resolveAccessLevel(level: number): string {
+  return ACCESS_LEVELS[level] ?? `Unknown (${level})`;
+}

@@ -1,7 +1,10 @@
+import { AuditPanel } from "@/components/AuditPanel";
+
 export default function Home() {
   return (
-    <div className="flex flex-1 items-center justify-center">
-      <h1 className="text-3xl font-semibold">GitLab Access Audit</h1>
-    </div>
+    <main className="flex flex-1 flex-col items-center py-12">
+      <h1 className="mb-8 text-3xl font-semibold">GitLab Access Audit</h1>
+      <AuditPanel />
+    </main>
   );
 }
